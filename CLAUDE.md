@@ -74,6 +74,11 @@ still needs a look before each release: the message list shows in most screensho
 once held messages whose sender was a real person's name (#3). The test domain
 `glamrocnamecheap.com` can show.
 
+The test account is a staff account, so it gets the alpha version of webmail, not the
+released one, until thunderbird/stormbox#236 lets staff opt out. Webmail shows no version.
+Each tour records the name of webmail's main script, for example `assets/main-BbnY9DAP.js`,
+as its build, and says that the screenshots come from a staff account (#10).
+
 ## Screenshot rules
 
 support.tb.pro has no screenshot guide that we know of, so the tour uses SUMO's rules for now

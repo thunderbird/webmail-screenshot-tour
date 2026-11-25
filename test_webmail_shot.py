@@ -198,6 +198,23 @@ class CropAndOutline(unittest.TestCase):
         self.assertEqual(w.crop_file("01-inbox-account-menu-next.png"), "01-inbox-account-menu-next-crop.png")
 
 
+class BuildOf(unittest.TestCase):
+    def test_main_script(self):
+        urls = ["https://webmail.thundermail.com/assets/main-BbnY9DAP.js", ""]
+        self.assertEqual(w.build_of(urls), "assets/main-BbnY9DAP.js")
+
+    def test_other_scripts_are_ignored(self):
+        urls = ["https://webmail.thundermail.com/assets/modulepreload-polyfill-Dezn_h7o.js",
+                "https://example.com/assets/main-XXXX.js",
+                "https://webmail.thundermail.com/assets/main-BbnY9DAP.js"]
+        self.assertEqual(w.build_of(urls), "assets/main-BbnY9DAP.js")
+
+    def test_none_or_two(self):
+        self.assertIsNone(w.build_of([]))
+        self.assertIsNone(w.build_of(["https://webmail.thundermail.com/assets/main-A.js",
+                                      "https://webmail.thundermail.com/assets/main-B.js"]))
+
+
 class SettingsDifferences(unittest.TestCase):
     def test_same(self):
         self.assertEqual(w.settings_differences(w.START_SETTINGS, dict(w.START_SETTINGS)), [])
@@ -226,8 +243,20 @@ class Index(unittest.TestCase):
         self.assertIn("| 3 | settings, Thunderbird shortcuts |  | 04-settings-shortcuts-thunderbird.png | 620 × 434 |  "
                       "| 04-settings-shortcuts-thunderbird-crop.png | 508 × 350 |  |", md)
 
+    def test_build_and_alpha_note(self):
+        md = w.index_md("2026-11-25-en-US", self.steps, "assets/main-BbnY9DAP.js")
+        self.assertIn("Webmail build: `assets/main-BbnY9DAP.js`", md)
+        self.assertIn("stormbox#236", md)
+        self.assertIn("Webmail build: `unknown`", w.index_md("x", self.steps))
+        notes = w.release_notes("2026-11-25", "assets/main-BbnY9DAP.js")
+        self.assertIn("`assets/main-BbnY9DAP.js`", notes)
+        self.assertIn("stormbox#236", notes)
+
     def test_json(self):
-        data = json.loads(w.index_json("2026-11-25-en-US", "en-US", datetime.date(2026, 11, 25), self.steps))
+        data = json.loads(w.index_json("2026-11-25-en-US", "en-US", datetime.date(2026, 11, 25), self.steps,
+                                       "assets/main-BbnY9DAP.js"))
+        self.assertEqual(data["build"], "assets/main-BbnY9DAP.js")
+        self.assertTrue(data["staff_account"])
         self.assertEqual(data["tour"], "2026-11-25-en-US")
         self.assertEqual([s["file"] for s in data["steps"]],
                          ["01-inbox-account-menu-next.png", "02-account-menu-settings-next.png",
@@ -280,7 +309,8 @@ class Publish(unittest.TestCase):
         os.makedirs(self.folder)
         steps = [dict(s, crop_file=w.crop_file(s["file"])) for s in w.STEPS]
         with open(os.path.join(self.folder, "index.json"), "w") as f:
-            f.write(w.index_json("2026-11-25-en-US", "en-US", datetime.date(2026, 11, 25), steps))
+            f.write(w.index_json("2026-11-25-en-US", "en-US", datetime.date(2026, 11, 25), steps,
+                                 "assets/main-BbnY9DAP.js"))
         with open(os.path.join(self.folder, "index.md"), "w") as f:
             f.write(w.index_md("2026-11-25-en-US", steps))
         for s in steps:
@@ -309,6 +339,7 @@ class Publish(unittest.TestCase):
         self.assertEqual(cmd[:5], ["gh", "release", "create", "screenshots-2026-11-25", cmd[4]])
         self.assertTrue(cmd[4].endswith("/2026-11-25-en-US.zip"))
         self.assertIn("--notes", cmd)
+        self.assertIn("assets/main-BbnY9DAP.js", cmd[cmd.index("--notes") + 1])
         self.assertEqual(len(self.zipped), 2 + 2 * len(w.STEPS))
         self.assertIn("2026-11-25-en-US/01-inbox-account-menu-next-crop.png", self.zipped)
         self.assertEqual(self.zipped[:2], ["2026-11-25-en-US/index.md", "2026-11-25-en-US/index.json"])

@@ -312,9 +312,28 @@ def crop_and_outline(png, page_size, crop, box=None, color=OUTLINE_COLOR, width=
     return out.getvalue(), rect, size
 
 
-def index_md(name, steps):
+ALPHA_NOTE = ("The test account is a staff account, so it can get the alpha version of webmail "
+              "and not the released one (thunderbird/stormbox#236). The screenshots can show "
+              "features that users do not see yet.")
+
+
+def build_of(script_urls):
+    """Webmail's build: the hashed name of its main script, for example assets/main-BbnY9DAP.js.
+
+    Webmail shows no version, and this name changes with each deploy (#10).
+    Returns None if there is no main script, or more than one.
+    """
+    names = sorted({urlsplit(u).path.lstrip("/") for u in script_urls
+                    if urlsplit(u).hostname == WEBMAIL_HOST
+                    and urlsplit(u).path.startswith("/assets/main-") and urlsplit(u).path.endswith(".js")})
+    return names[0] if len(names) == 1 else None
+
+
+def index_md(name, steps, build=None):
     """index.md of a tour folder: one row per step."""
     lines = [f"# Thundermail webmail tour {name}", "",
+             f"Webmail build: `{build or 'unknown'}`, the name of webmail's main script (#10).", "",
+             ALPHA_NOTE, "",
              "Made by `webmail_shot.py tour` (issues #3 and #4). Each step has one screenshot. If",
              "the step has an outlined item, the tour clicks it, and the next step shows the result.",
              "A step without an outline shows what a click changed. The tour undoes that click",
@@ -338,9 +357,10 @@ def index_md(name, steps):
     return "\n".join(lines) + "\n"
 
 
-def index_json(name, locale, date, steps):
+def index_json(name, locale, date, steps, build=None):
     return json.dumps({"tour": name, "locale": locale, "date": date.isoformat(),
-                       "url": WEBMAIL_URL, "steps": steps}, ensure_ascii=False, indent=1) + "\n"
+                       "url": WEBMAIL_URL, "build": build, "staff_account": True,
+                       "steps": steps}, ensure_ascii=False, indent=1) + "\n"
 
 
 def wait_until_stable(read, settle=SETTLE_S, timeout=30, clock=time.monotonic, sleep=time.sleep):
@@ -398,20 +418,22 @@ def zip_tour(folder, dest_dir):
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for n in files:
             z.write(os.path.join(folder, n), f"{name}/{n}")
-    return path, index["date"], len(files) - 2
+    return path, index["date"], len(files) - 2, index.get("build")
 
 
-def release_notes(date):
+def release_notes(date, build=None):
     return (f"Screenshots of Thundermail webmail on {date}: the account menu, Settings and every control "
             "in the Settings dialog, one zip for each locale, made by `webmail_shot.py tour` (#3, #4). "
             "Each step has the whole page scaled to 620 px and a crop at full size. Each zip has an "
-            "index.md that lists the steps.\n")
+            "index.md that lists the steps.\n\n"
+            f"Webmail build: `{build or 'unknown'}` (#10). Each zip's index.json has the build of its own run.\n\n"
+            + ALPHA_NOTE + "\n")
 
 
 def publish(folder, replace=False, run=subprocess.run, say=print, repo=RELEASE_REPO):
     """Add a tour folder's zip to the release of its date, creating it if needed."""
     with tempfile.TemporaryDirectory() as tmp:
-        path, date, count = zip_tour(folder, tmp)
+        path, date, count, build = zip_tour(folder, tmp)
         tag, asset = release_tag(date), os.path.basename(path)
         view = run(["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
                    capture_output=True, text=True)
@@ -419,7 +441,7 @@ def publish(folder, replace=False, run=subprocess.run, say=print, repo=RELEASE_R
             if "release not found" not in (view.stderr or ""):
                 raise RuntimeError(f"gh release view {tag} failed: {(view.stderr or '').strip()}")
             command = ["gh", "release", "create", tag, path, "--repo", repo,
-                       "--title", f"Webmail screenshots {date}", "--notes", release_notes(date)]
+                       "--title", f"Webmail screenshots {date}", "--notes", release_notes(date, build)]
             action = "created the release with"
         else:
             names = [a["name"] for a in json.loads(view.stdout or "{}").get("assets", [])]
@@ -536,10 +558,14 @@ def tour(out=DEFAULT_OUT, headless=True, locale=DEFAULT_LOCALE, today=None, say=
             name = tour_name(today, locale)
             folder = os.path.join(out, name)
             done = []
+            build = None
             for i, step in enumerate(STEPS):
                 wait_for_webmail(page, step["ready"])
                 if step.get("gone"):
                     page.locator(step["gone"]).wait_for(state="hidden", timeout=10000)
+                if build is None:
+                    build = build_of(page.evaluate("[...document.scripts].map(s => s.src)"))
+                    say(f"Webmail build: {build or 'unknown'}.")
                 if step["ready"] == MESSAGE_LIST:
                     waited = wait_until_stable(lambda: page.evaluate(LIST_STATE_JS, MESSAGE_LIST))
                     say(f"The message list stayed the same for {SETTLE_S} s after {waited:.1f} s.")
@@ -563,9 +589,9 @@ def tour(out=DEFAULT_OUT, headless=True, locale=DEFAULT_LOCALE, today=None, say=
         finally:
             ctx.close()
     with open(os.path.join(folder, "index.md"), "w", encoding="utf-8") as f:
-        f.write(index_md(name, done))
+        f.write(index_md(name, done, build))
     with open(os.path.join(folder, "index.json"), "w", encoding="utf-8") as f:
-        f.write(index_json(name, locale, today, done))
+        f.write(index_json(name, locale, today, done, build))
     saved = [f for s in done for f in (s["file"], s["crop_file"]) if os.path.isfile(os.path.join(folder, f))]
     asked = [f for s in STEPS for f in (s["file"], crop_file(s["file"]))]
     if saved != asked:
