@@ -10,6 +10,7 @@ and clicks every control in the Settings dialog. It needs [uv](https://docs.astr
 ```
 uv run webmail_shot.py login   # one time: sign in to the test account by hand
 uv run webmail_shot.py tour    # saves screenshots/DATE-LOCALE/
+uv run webmail_shot.py publish screenshots/DATE-LOCALE   # zip it as a GitHub release asset
 uv run test_webmail_shot.py    # tests that need no browser
 ```
 

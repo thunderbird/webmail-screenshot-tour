@@ -11,6 +11,7 @@
 
     uv run webmail_shot.py login
     uv run webmail_shot.py tour [--out DIR] [--locale LOCALE] [--headed]
+    uv run webmail_shot.py publish DIR/DATE-LOCALE [--replace]
 
 `login` opens Firefox Release, driven by Playwright, with a persistent profile in
 .auth/firefox-profile. A persistent profile is a Firefox profile folder that
@@ -53,6 +54,14 @@ images at most 768 pixels wide, so 620 pixels stays below that limit. The
 outline is #f71701, square, and OUTLINE_PX thick in the file, centered on the
 edge of the item.
 
+`publish` (#5) puts a tour folder on GitHub as a release asset, with `gh`:
+one release for each date (tag screenshots-DATE) and one zip for each locale
+(DATE-LOCALE.zip). It creates the release if it is missing and adds the zip
+otherwise, and it never replaces a zip that is already there unless you give
+--replace. Release assets are outside the git history, so a clone of this
+repository never downloads them. The repository is public: before you
+publish, make sure that no screenshot shows private data.
+
 The browser is the Firefox Release that is installed on the computer, at
 /Applications/Firefox.app on macOS, not Playwright's own Firefox build.
 Playwright drives it over WebDriver BiDi, with its channel "moz-firefox", so
@@ -63,8 +72,11 @@ import datetime
 import io
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import time
+import zipfile
 from urllib.parse import urlsplit
 
 # SUMO's rules, from "How to make screenshots" (see CLAUDE.md).
@@ -84,6 +96,7 @@ PROFILE = os.path.join(REPO, ".auth", "firefox-profile")
 DEFAULT_OUT = os.path.join(REPO, "screenshots")
 
 DEFAULT_LOCALE = "en-US"
+RELEASE_REPO = "thunderbird/webmail-screenshot-tour"
 
 # The controls of the tour, never found by visible text or by aria-label,
 # which are translated. Found in the signed-in inbox on 2026-11-25 (#3).
@@ -361,6 +374,72 @@ def settings_differences(expected, found):
             for k in expected if found.get(k) != expected[k]]
 
 
+# --- Publishing a tour as a GitHub release asset (#5) ----------------------------
+
+def release_tag(date):
+    return f"screenshots-{date}"
+
+
+def read_tour(folder):
+    """The index.json of a finished tour folder, and its files: index.md, index.json, then the PNGs."""
+    try:
+        with open(os.path.join(folder, "index.json"), encoding="utf-8") as f:
+            index = json.load(f)
+        steps = index["steps"]
+        index["tour"], index["date"], index["locale"]
+    except (OSError, ValueError, KeyError) as e:
+        raise RuntimeError(f"{folder} is not a finished tour (index.json: {e})")
+    files = ["index.md", "index.json"] + [s[k] for s in steps for k in ("file", "crop_file") if s.get(k)]
+    missing = [n for n in files if not os.path.isfile(os.path.join(folder, n))]
+    if missing:
+        raise RuntimeError(f"{folder} lacks {', '.join(missing)}")
+    return index, files
+
+
+def zip_tour(folder, dest_dir):
+    """DATE-LOCALE.zip of a tour folder, from its index.json."""
+    index, files = read_tour(folder)
+    name = index["tour"]
+    path = os.path.join(dest_dir, name + ".zip")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in files:
+            z.write(os.path.join(folder, n), f"{name}/{n}")
+    return path, index["date"], len(files) - 2
+
+
+def release_notes(date):
+    return (f"Screenshots of Thundermail webmail on {date}: the account menu, Settings and every control "
+            "in the Settings dialog, one zip for each locale, made by `webmail_shot.py tour` (#3, #4). "
+            "Each step has the whole page scaled to 620 px and a crop at full size. Each zip has an "
+            "index.md that lists the steps.\n")
+
+
+def publish(folder, replace=False, run=subprocess.run, say=print, repo=RELEASE_REPO):
+    """Add a tour folder's zip to the release of its date, creating it if needed."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path, date, count = zip_tour(folder, tmp)
+        tag, asset = release_tag(date), os.path.basename(path)
+        view = run(["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
+                   capture_output=True, text=True)
+        if view.returncode != 0:
+            if "release not found" not in (view.stderr or ""):
+                raise RuntimeError(f"gh release view {tag} failed: {(view.stderr or '').strip()}")
+            command = ["gh", "release", "create", tag, path, "--repo", repo,
+                       "--title", f"Webmail screenshots {date}", "--notes", release_notes(date)]
+            action = "created the release with"
+        else:
+            names = [a["name"] for a in json.loads(view.stdout or "{}").get("assets", [])]
+            if asset in names and not replace:
+                raise RuntimeError(f"{tag} already has {asset}: give --replace to replace it")
+            command = ["gh", "release", "upload", tag, path, "--repo", repo] + (["--clobber"] if asset in names else [])
+            action = "replaced" if asset in names else "added"
+        res = run(command, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"{' '.join(command[:3])} failed: {(res.stderr or '').strip()}")
+    say(f"{tag}: {action} {asset} ({count} screenshots), https://github.com/{repo}/releases/tag/{tag}")
+    return command
+
+
 # --- The browser ---------------------------------------------------------------
 
 def open_context(playwright, headless, locale=DEFAULT_LOCALE):
@@ -505,9 +584,20 @@ def tour(out=DEFAULT_OUT, headless=True, locale=DEFAULT_LOCALE, today=None, say=
 
 
 def main(argv):
-    if not argv or argv[0] not in ("login", "tour"):
+    if not argv or argv[0] not in ("login", "tour", "publish"):
         print(__doc__)
         return 2
+    if argv[0] == "publish":
+        folders = [a for a in argv[1:] if not a.startswith("--")]
+        if len(folders) != 1:
+            print("Give one tour folder, for example screenshots/2026-11-25-en-US.")
+            return 2
+        try:
+            publish(folders[0], replace="--replace" in argv)
+        except RuntimeError as e:
+            print(f"error: {e}")
+            return 1
+        return 0
     if argv[0] == "login":
         login()
         return 0

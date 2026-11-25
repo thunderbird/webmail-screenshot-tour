@@ -14,7 +14,11 @@
 import datetime
 import io
 import json
+import os
+import subprocess
+import tempfile
 import unittest
+import zipfile
 
 from PIL import Image
 
@@ -267,6 +271,80 @@ class Index(unittest.TestCase):
     def test_file_names_have_no_visible_text(self):
         for s in w.STEPS:
             self.assertRegex(s["file"], r"^\d\d-[a-z-]+\.png$")
+
+
+class Publish(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.folder = os.path.join(self.tmp.name, "2026-11-25-en-US")
+        os.makedirs(self.folder)
+        steps = [dict(s, crop_file=w.crop_file(s["file"])) for s in w.STEPS]
+        with open(os.path.join(self.folder, "index.json"), "w") as f:
+            f.write(w.index_json("2026-11-25-en-US", "en-US", datetime.date(2026, 11, 25), steps))
+        with open(os.path.join(self.folder, "index.md"), "w") as f:
+            f.write(w.index_md("2026-11-25-en-US", steps))
+        for s in steps:
+            for n in (s["file"], s["crop_file"]):
+                with open(os.path.join(self.folder, n), "wb") as f:
+                    f.write(png_of(4, 4))
+        self.calls = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def gh(self, view_code=0, view_err="", assets=(), upload_code=0):
+        def run(cmd, **kw):
+            self.calls.append(cmd)
+            if cmd[:3] == ["gh", "release", "view"]:
+                out = json.dumps({"assets": [{"name": a} for a in assets]})
+                return subprocess.CompletedProcess(cmd, view_code, out, view_err)
+            # The zip must exist and hold every file while gh runs.
+            with zipfile.ZipFile(cmd[4]) as z:
+                self.zipped = z.namelist()
+            return subprocess.CompletedProcess(cmd, upload_code, "", "upload failed" if upload_code else "")
+        return run
+
+    def test_creates_the_release(self):
+        cmd = w.publish(self.folder, run=self.gh(1, "release not found"), say=lambda line: None)
+        self.assertEqual(cmd[:5], ["gh", "release", "create", "screenshots-2026-11-25", cmd[4]])
+        self.assertTrue(cmd[4].endswith("/2026-11-25-en-US.zip"))
+        self.assertIn("--notes", cmd)
+        self.assertEqual(len(self.zipped), 2 + 2 * len(w.STEPS))
+        self.assertIn("2026-11-25-en-US/01-inbox-account-menu-next-crop.png", self.zipped)
+        self.assertEqual(self.zipped[:2], ["2026-11-25-en-US/index.md", "2026-11-25-en-US/index.json"])
+
+    def test_adds_to_the_release(self):
+        cmd = w.publish(self.folder, run=self.gh(assets=["2026-11-25-de.zip"]), say=lambda line: None)
+        self.assertEqual(cmd[:3], ["gh", "release", "upload"])
+        self.assertNotIn("--clobber", cmd)
+
+    def test_refuses_to_replace(self):
+        with self.assertRaisesRegex(RuntimeError, "--replace"):
+            w.publish(self.folder, run=self.gh(assets=["2026-11-25-en-US.zip"]), say=lambda line: None)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_replaces_with_flag(self):
+        cmd = w.publish(self.folder, replace=True, run=self.gh(assets=["2026-11-25-en-US.zip"]), say=lambda line: None)
+        self.assertIn("--clobber", cmd)
+
+    def test_gh_error(self):
+        with self.assertRaisesRegex(RuntimeError, "not logged in"):
+            w.publish(self.folder, run=self.gh(1, "not logged in"), say=lambda line: None)
+
+    def test_upload_error(self):
+        with self.assertRaisesRegex(RuntimeError, "upload failed"):
+            w.publish(self.folder, run=self.gh(assets=[], upload_code=1), say=lambda line: None)
+
+    def test_missing_file(self):
+        os.remove(os.path.join(self.folder, "03-settings-shortcuts-thunderbird-next-crop.png"))
+        with self.assertRaisesRegex(RuntimeError, "lacks 03-settings-shortcuts-thunderbird-next-crop.png"):
+            w.publish(self.folder, run=self.gh(), say=lambda line: None)
+        self.assertEqual(self.calls, [])
+
+    def test_not_a_tour(self):
+        os.remove(os.path.join(self.folder, "index.json"))
+        with self.assertRaisesRegex(RuntimeError, "not a finished tour"):
+            w.publish(self.folder, run=self.gh(), say=lambda line: None)
 
 
 if __name__ == "__main__":
