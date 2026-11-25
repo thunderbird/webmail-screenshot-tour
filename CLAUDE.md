@@ -28,14 +28,32 @@ This repository started on 2026-11-25. It follows two pieces of work in
 - firefox-mcp is only for exploration. Its `take_snapshot` lists each control with its role
   and label, which helps you find IDs before you write the script. Webmail is an ordinary web
   page, so firefox-mcp needs no `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS` for it.
-- The script finds each control by ID or ARIA role, never by visible text. This way, the
-  same tour works in other locales.
+- The script finds each control by ID, ARIA role or `data-` attribute, never by visible
+  text or `aria-label`, which are translated. This way, the same tour works in other
+  locales. Where a control has none of these, a class name and the order are the last
+  resort (#3). Issue #9 asks the stormbox team for stable attributes.
+- Playwright drives Firefox Release, as installed, through its `moz-firefox` channel
+  (WebDriver BiDi), not Playwright's own Firefox build. Its profile is
+  `.auth/firefox-profile`, separate from the maintainer's own Firefox profile (#3).
 - A tour is named by date and locale, for example `2026-11-25-en-US`. Webmail has no
   version numbers, unlike Thunderbird desktop.
-- Tours are published as GitHub release assets, one zip for each tour, as `tb_shot.py
-  publish` does. They are not committed. `screenshots/` is gitignored.
+- Tours are published as GitHub release assets with `webmail_shot.py publish`: one release
+  for each date (tag `screenshots-DATE`) and one zip for each locale (#5). They are not
+  committed. `screenshots/` is gitignored.
+- Run tours without `--out`, so that they go to `screenshots/` in this repository, where an
+  agent can read the PNGs without a permission for another folder.
 - The tour starts at webmail.thundermail.com, signs in through OAuth, and then visits the
-  Settings screens, as the desktop tour does.
+  Settings screens, as the desktop tour does. Settings is in the account menu at the top
+  right. The tour clicks every control in the Settings dialog and undoes each change (#4).
+- Each step saves two PNGs: the whole page scaled to fit 620 px, and a crop at full size,
+  `FILE-crop.png`, because scaling makes the text half size and blurry (#4). The welcome
+  dialog is wider than 620 px, so for that step use the whole-page PNG.
+- Each screenshot uses Playwright's `animations="disabled"` after a wait for
+  `document.fonts.ready` (#7). Webmail shows a cached message list first, so the tour waits
+  until the list stays the same for 5 seconds before an inbox screenshot (#3).
+- The webmail source is [thunderbird/stormbox](https://github.com/thunderbird/stormbox).
+  Issues kept open for later: the "Show me" feature tours (#6) and a run against the
+  stormbox local stack with seeded mail (#8).
 - This repository is public, so every committed file and every published screenshot is
   public too.
 
@@ -51,7 +69,10 @@ for one, and no password goes in a file or an environment variable.
 A webmail screenshot shows a mailbox. The screenshot rules below forbid personal
 information, including email addresses and user names. Before a tour is published, make sure
 that no screenshot shows private data. Use only the test account, `nemo@thundermail.com`. It
-holds no private data, and as a dedicated test address it can show in screenshots.
+holds no private data, and as a dedicated test address it can show in screenshots. Its inbox
+still needs a look before each release: the message list shows in most screenshots, and it
+once held messages whose sender was a real person's name (#3). The test domain
+`glamrocnamecheap.com` can show.
 
 ## Screenshot rules
 
