@@ -138,31 +138,64 @@ class WaitUntilStable(unittest.TestCase):
             w.wait_until_stable(lambda: c.t, settle=5, timeout=30, clock=c, sleep=c.sleep)
 
 
+class SettingsDifferences(unittest.TestCase):
+    def test_same(self):
+        self.assertEqual(w.settings_differences(w.START_SETTINGS, dict(w.START_SETTINGS)), [])
+
+    def test_changed_and_missing(self):
+        found = {"shortcuts": "thunderbird"}
+        self.assertEqual(w.settings_differences(w.START_SETTINGS, found), [
+            "shortcuts: expected 'web', found 'thunderbird'",
+            "follow_system_theme: expected 'true', found None",
+        ])
+
+
 class Index(unittest.TestCase):
     steps = [
         dict(w.STEPS[0], size=[620, 434], outline=[591, 2, 615, 26], label="Open account menu"),
         dict(w.STEPS[1], size=[620, 434], outline=[493, 61, 611, 86], label="Settings"),
-        dict(w.STEPS[2], size=[620, 434], outline=None, label=None),
+        dict(w.STEPS[3], size=[620, 434], outline=None, label=None),
     ]
 
     def test_md(self):
         md = w.index_md("2026-11-25-en-US", self.steps)
         self.assertIn("| 1 | inbox | 01-inbox-account-menu-next.png | Open account menu | 620 × 434 | 591, 2, 615, 26 |", md)
-        self.assertIn("| 3 | settings | 03-settings.png |  | 620 × 434 |  |", md)
+        self.assertIn("| 3 | settings, Thunderbird shortcuts | 04-settings-shortcuts-thunderbird.png |  | 620 × 434 |  |", md)
 
     def test_json(self):
         data = json.loads(w.index_json("2026-11-25-en-US", "en-US", datetime.date(2026, 11, 25), self.steps))
         self.assertEqual(data["tour"], "2026-11-25-en-US")
         self.assertEqual([s["file"] for s in data["steps"]],
-                         ["01-inbox-account-menu-next.png", "02-account-menu-settings-next.png", "03-settings.png"])
+                         ["01-inbox-account-menu-next.png", "02-account-menu-settings-next.png",
+                          "04-settings-shortcuts-thunderbird.png"])
 
-    def test_each_outline_is_clicked_and_last_step_has_none(self):
-        self.assertTrue(all(s["outline"] for s in w.STEPS[:-1]))
+    def test_each_step_has_an_outline_or_an_undo(self):
+        for s in w.STEPS[:-1]:
+            self.assertTrue(bool(s["outline"]) != bool(s.get("undo")), s["file"])
+            if s.get("undo"):
+                self.assertTrue(s["undo_ready"], s["file"])
         self.assertIsNone(w.STEPS[-1]["outline"])
+        self.assertNotIn("undo", w.STEPS[-1])
+
+    def test_files_are_numbered_in_order(self):
+        self.assertEqual([int(s["file"][:2]) for s in w.STEPS], list(range(1, len(w.STEPS) + 1)))
+
+    def test_every_settings_control_is_clicked(self):
+        clicked = {s["outline"] for s in w.STEPS}
+        for sel in (w.SCHEME_THUNDERBIRD, w.THEME_SWITCH, w.SHOW_WELCOME, w.CLOSE_SETTINGS):
+            self.assertIn(sel, clicked)
+
+    def test_settings_are_read_while_the_dialog_is_open(self):
+        self.assertEqual(w.STEPS[w.FIRST_SETTINGS_STEP]["ready"], w.SETTINGS_DIALOG)
+        self.assertEqual(w.STEPS[w.LAST_SETTINGS_STEP]["ready"], w.SETTINGS_DIALOG)
+        # Every click before the last read is undone.
+        for s in w.STEPS[w.FIRST_SETTINGS_STEP:w.LAST_SETTINGS_STEP]:
+            if not s["outline"]:
+                self.assertTrue(s.get("undo"), s["file"])
 
     def test_selectors_use_no_translated_text(self):
         for s in w.STEPS:
-            for sel in (s["ready"], s["outline"] or ""):
+            for sel in (s["ready"], s["outline"] or "", s.get("gone") or "", *s.get("undo", [])):
                 self.assertNotIn("[aria-label=", sel)
                 self.assertNotIn("text=", sel)
                 self.assertNotIn(":has-text", sel)

@@ -25,7 +25,14 @@ holds session cookies: never commit it.
 1. The inbox, with the account menu outlined: the round picture with the
    account's initials, at the top right.
 2. The open account menu, with Settings outlined.
-3. The Settings dialog, after a click on Settings.
+3. to 9. Each control in the Settings dialog (#4): the dialog with the
+   control outlined, then what a click on it shows. The tour undoes each
+   click without a screenshot, so the test account keeps its settings.
+10. The inbox, after a click on the dialog's close button.
+
+Before the first click in Settings, the tour reads the settings, and it stops
+if they are not START_SETTINGS, because the steps expect that start. At the
+end, it reads them again and reports each one that differs from the start.
 
 LOCALE is the language that Firefox asks webmail for, en-US unless you give
 another. The files go to DIR/DATE-LOCALE, for example screenshots/2026-11-25-en-US,
@@ -37,8 +44,9 @@ page. The tour then stops before it takes a screenshot and asks you to run
 
 Each screenshot is the whole page, scaled down to fit 620 pixels each way, as
 SUMO's "How to make screenshots" says. The KB theme at support.tb.pro shows
-images at most 768 pixels wide, so 620 pixels stays below that limit. The outline is #f71701, square, and
-OUTLINE_PX thick in the file, centered on the edge of the item.
+images at most 768 pixels wide, so 620 pixels stays below that limit. The
+outline is #f71701, square, and OUTLINE_PX thick in the file, centered on the
+edge of the item.
 
 The browser is the Firefox Release that is installed on the computer, at
 /Applications/Firefox.app on macOS, not Playwright's own Firefox build.
@@ -82,6 +90,23 @@ ACCOUNT_MENU_POPUP = "details.account-menu[open] [role=menu]"
 SETTINGS_ITEM = "details.account-menu [role=menu] [role=menuitem] >> nth=0"
 SETTINGS_DIALOG = "[role=dialog][aria-labelledby=settings-dialog-title]"
 
+# The controls in the Settings dialog (#4), by their data attributes.
+SCHEME_WEB = "[data-shortcut-scheme=web]"
+SCHEME_THUNDERBIRD = "[data-shortcut-scheme=thunderbird]"
+THEME_SWITCH = "[data-system-theme-toggle]"
+SHOW_WELCOME = "[data-show-welcome]"
+CLOSE_SETTINGS = ".settings-dialog__close"
+WELCOME_DIALOG = "[role=dialog][aria-labelledby=welcome-title]"
+CLOSE_WELCOME = ".welcome__close"
+
+# The settings that the steps expect at the start, and how to read them
+# while the Settings dialog is open.
+START_SETTINGS = {"shortcuts": "web", "follow_system_theme": "true"}
+SETTINGS_JS = """() => ({
+  shortcuts: document.querySelector('[data-shortcut-scheme][aria-checked=true]')?.dataset.shortcutScheme ?? null,
+  follow_system_theme: document.querySelector('[data-system-theme-toggle]')?.getAttribute('aria-checked') ?? null,
+})"""
+
 # Webmail shows its cached message list first and refreshes it later, so the
 # tour waits until the list stays the same for SETTLE_S seconds (#3).
 SETTLE_S = 5
@@ -89,19 +114,53 @@ LIST_STATE_JS = """sel => { const l = document.querySelector(sel); if (!l) retur
   return [l.getAttribute('aria-rowcount'), l.getAttribute('aria-busy'),
           ...[...l.querySelectorAll('[role=row]')].map(r => r.getAttribute('aria-label'))].join('\\n'); }"""
 
-# Each step waits for `ready`, saves a screenshot with `outline` outlined,
-# and then clicks `outline`, which leads to the next step.
+# Each step waits until `ready` shows and `gone` (if any) is hidden, saves a
+# screenshot with `outline` outlined, and then clicks `outline`, which leads
+# to the next step. A step with `undo` has no outline: after its screenshot,
+# the tour clicks each selector in `undo`, in order, and waits for
+# `undo_ready`. Then the next step starts.
 STEPS = [
     {"file": "01-inbox-account-menu-next.png", "screen": "inbox",
      "ready": MESSAGE_LIST, "outline": ACCOUNT_MENU},
     {"file": "02-account-menu-settings-next.png", "screen": "account menu",
      "ready": ACCOUNT_MENU_POPUP, "outline": SETTINGS_ITEM},
-    {"file": "03-settings.png", "screen": "settings",
-     "ready": SETTINGS_DIALOG, "outline": None},
+    {"file": "03-settings-shortcuts-thunderbird-next.png", "screen": "settings",
+     "ready": SETTINGS_DIALOG, "outline": SCHEME_THUNDERBIRD},
+    {"file": "04-settings-shortcuts-thunderbird.png", "screen": "settings, Thunderbird shortcuts",
+     "ready": SCHEME_THUNDERBIRD + "[aria-checked=true]", "outline": None,
+     "undo": [SCHEME_WEB], "undo_ready": SCHEME_WEB + "[aria-checked=true]"},
+    {"file": "05-settings-system-theme-next.png", "screen": "settings",
+     "ready": SETTINGS_DIALOG, "outline": THEME_SWITCH},
+    {"file": "06-settings-system-theme-off.png", "screen": "settings, system theme off",
+     "ready": THEME_SWITCH + "[aria-checked=false]", "outline": None,
+     "undo": [THEME_SWITCH], "undo_ready": THEME_SWITCH + "[aria-checked=true]"},
+    {"file": "07-settings-show-welcome-next.png", "screen": "settings",
+     "ready": SETTINGS_DIALOG, "outline": SHOW_WELCOME},
+    {"file": "08-welcome.png", "screen": "welcome",
+     "ready": WELCOME_DIALOG, "gone": SETTINGS_DIALOG, "outline": None,
+     "undo": [CLOSE_WELCOME, ACCOUNT_MENU, SETTINGS_ITEM], "undo_ready": SETTINGS_DIALOG},
+    {"file": "09-settings-close-next.png", "screen": "settings",
+     "ready": SETTINGS_DIALOG, "outline": CLOSE_SETTINGS},
+    {"file": "10-inbox.png", "screen": "inbox, Settings closed",
+     "ready": MESSAGE_LIST, "gone": SETTINGS_DIALOG, "outline": None},
 ]
+# The settings are read before the click of this step, and after the undo of
+# the step before the last one, while the Settings dialog is open.
+FIRST_SETTINGS_STEP = 2
+LAST_SETTINGS_STEP = 8
 
 EXPIRED = ("The session expired: webmail sent the browser to the sign-in page at {url}.\n"
            "Run `uv run webmail_shot.py login` and sign in again. No screenshot was taken.")
+
+
+# Waits two frames, so that a CSS transition that a click starts is running,
+# and then until every animation and transition on the page has finished.
+# Returns the number of animations it waited for.
+SETTLE_ANIMATIONS_JS = """() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+  const running = document.getAnimations().filter(a => a.playState === 'running'
+    && a.effect?.getComputedTiming().iterations !== Infinity);
+  Promise.all(running.map(a => a.finished.catch(() => null))).then(() => resolve(running.length));
+})))"""
 
 
 # --- Pure functions: no browser ---------------------------------------------------
@@ -175,8 +234,10 @@ def shrink_and_outline(png, box=None, max_px=MAX_PX, color=OUTLINE_COLOR, width=
 def index_md(name, steps):
     """index.md of a tour folder: one row per step."""
     lines = [f"# Thundermail webmail tour {name}", "",
-             "Made by `webmail_shot.py tour` (issue #3). Each step has one screenshot. If the step",
-             "has an outlined item, the next step clicks it.", "",
+             "Made by `webmail_shot.py tour` (issues #3 and #4). Each step has one screenshot. If",
+             "the step has an outlined item, the tour clicks it, and the next step shows the result.",
+             "A step without an outline shows what a click changed. The tour undoes that click",
+             "without a screenshot before the next step.", "",
              "| Step | Screen | Screenshot | Item outlined | Size (px) | Outline (left, top, right, bottom) |",
              "|---|---|---|---|---|---|"]
     for i, s in enumerate(steps, 1):
@@ -209,6 +270,12 @@ def wait_until_stable(read, settle=SETTLE_S, timeout=30, clock=time.monotonic, s
         new = read()
         if new != value:
             value, since = new, clock()
+
+
+def settings_differences(expected, found):
+    """The settings in `found` that differ from `expected`, as readable lines."""
+    return [f"{k}: expected {expected[k]!r}, found {found.get(k)!r}"
+            for k in expected if found.get(k) != expected[k]]
 
 
 # --- The browser ---------------------------------------------------------------
@@ -267,14 +334,16 @@ def page_box(page, selector):
         raise RuntimeError(f"{selector} is not visible")
     box["page"] = (VIEWPORT["width"], VIEWPORT["height"])
     # The label in the locale's words, for index.md only.
-    box["label"] = (loc.get_attribute("aria-label") or loc.get_attribute("title")
-                    or loc.inner_text().strip())
+    box["label"] = loc.evaluate("""e => e.getAttribute('aria-label') || e.getAttribute('title')
+      || (e.getAttribute('aria-labelledby') || '').split(' ').map(id => document.getElementById(id)?.textContent.trim() ?? '').join(' ').trim()
+      || e.textContent.trim()""")
     return box
 
 
 def save_step(page, folder, step, selector=None, say=print):
-    box = page_box(page, selector) if selector else None
     page.mouse.move(0, 0)  # no hover effect in the screenshot
+    page.evaluate(SETTLE_ANIMATIONS_JS)
+    box = page_box(page, selector) if selector else None
     png, rect, size = shrink_and_outline(page.screenshot(), box)
     with open(os.path.join(folder, step["file"]), "wb") as f:
         f.write(png)
@@ -299,15 +368,30 @@ def tour(out=DEFAULT_OUT, headless=True, locale=DEFAULT_LOCALE, today=None, say=
             name = tour_name(today, locale)
             folder = os.path.join(out, name)
             done = []
-            for step in STEPS:
+            for i, step in enumerate(STEPS):
                 wait_for_webmail(page, step["ready"])
+                if step.get("gone"):
+                    page.locator(step["gone"]).wait_for(state="hidden", timeout=10000)
                 if step["ready"] == MESSAGE_LIST:
                     waited = wait_until_stable(lambda: page.evaluate(LIST_STATE_JS, MESSAGE_LIST))
                     say(f"The message list stayed the same for {SETTLE_S} s after {waited:.1f} s.")
+                if i == FIRST_SETTINGS_STEP:
+                    start = page.evaluate(SETTINGS_JS)
+                    wrong = settings_differences(START_SETTINGS, start)
+                    if wrong:
+                        raise SystemExit("The test account's settings are not what the tour expects, "
+                                         "so it clicked nothing in Settings:\n  " + "\n  ".join(wrong))
+                if i == LAST_SETTINGS_STEP:
+                    end = page.evaluate(SETTINGS_JS)
                 os.makedirs(folder, exist_ok=True)
                 done.append(save_step(page, folder, step, step["outline"], say))
                 if step["outline"]:
                     page.locator(step["outline"]).click()
+                for sel in step.get("undo", []):
+                    page.locator(sel).click()
+                    page.wait_for_timeout(300)
+                if step.get("undo"):
+                    wait_for_webmail(page, step["undo_ready"])
         finally:
             ctx.close()
     with open(os.path.join(folder, "index.md"), "w", encoding="utf-8") as f:
@@ -319,6 +403,11 @@ def tour(out=DEFAULT_OUT, headless=True, locale=DEFAULT_LOCALE, today=None, say=
     if saved != asked:
         raise SystemExit(f"The tour asked for {asked} but saved {saved}.")
     say(f"Saved all {len(saved)} of {len(asked)} steps, index.md and index.json in {folder}.")
+    changed = settings_differences(START_SETTINGS, end)
+    if changed:
+        raise SystemExit("The tour changed the test account's settings. Fix them by hand:\n  "
+                         + "\n  ".join(changed))
+    say(f"The settings at the end are the same as at the start: {end}.")
     return folder, done
 
 

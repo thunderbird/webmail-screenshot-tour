@@ -4,8 +4,8 @@ This repository makes screenshot tours of [Thundermail webmail](https://webmail.
 in Firefox. The screenshots are for the Thundermail Knowledge Base at
 [support.tb.pro/hc](https://support.tb.pro/hc).
 
-The plan is in issue #1. The first tour (issue #3) signs in, opens the account menu and opens
-Settings. It needs [uv](https://docs.astral.sh/uv/) and Firefox Release.
+The plan is in issue #1. The tour (issues #3 and #4) signs in, opens the account menu and Settings,
+and clicks every control in the Settings dialog. It needs [uv](https://docs.astral.sh/uv/) and Firefox Release.
 
 ```
 uv run webmail_shot.py login   # one time: sign in to the test account by hand

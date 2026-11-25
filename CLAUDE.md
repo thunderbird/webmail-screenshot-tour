@@ -10,7 +10,9 @@ A tour is a script that clicks through the webmail screens in a fixed order. It 
 for each step, plus `index.md` and `index.json` that list the steps.
 
 The design record is issue #1. Read it and its comments first. The tour is `webmail_shot.py`,
-and its tests that need no browser are in `test_webmail_shot.py` (issue #3).
+and its tests that need no browser are in `test_webmail_shot.py` (issues #3 and #4). The tour
+undoes every setting it changes, and stops if the test account's settings are not what it
+expects at the start.
 
 This repository started on 2026-11-25. It follows two pieces of work in
 [thunderbird/sumo-linter](https://github.com/thunderbird/sumo-linter):
