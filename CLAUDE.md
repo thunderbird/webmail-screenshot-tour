@@ -9,7 +9,8 @@ not for SUMO (support.mozilla.org).
 A tour is a script that clicks through the webmail screens in a fixed order. It saves one PNG
 for each step, plus `index.md` and `index.json` that list the steps.
 
-Nothing is built yet. The design record is issue #1. Read it and its comments first.
+The design record is issue #1. Read it and its comments first. The tour is `webmail_shot.py`,
+and its tests that need no browser are in `test_webmail_shot.py` (issue #3).
 
 This repository started on 2026-11-25. It follows two pieces of work in
 [thunderbird/sumo-linter](https://github.com/thunderbird/sumo-linter):
@@ -58,7 +59,8 @@ support.tb.pro has no screenshot guide that we know of, so the tour uses SUMO's 
 The source is the SUMO article `how-to-make-screenshots`. A copy of its wiki source is in
 sumo-linter at `corpus-other/markup-docs/en-US/how-to-make-screenshots.wiki`.
 
-- Keep each image under 620 pixels in width and in height.
+- Keep each image under 620 pixels in width and in height. The KB theme at support.tb.pro
+  shows images at most 768 pixels wide, so 620 pixels stays below that limit.
 - Outline the important item with a red outline, color `#f71701`, with square corners.
 - Make the outline 4 to 8 points thick, and center the item inside it.
 - Crop to the part of the screen that the task needs.

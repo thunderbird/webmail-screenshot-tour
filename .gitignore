@@ -3,3 +3,4 @@ node_modules/
 .auth/
 # Tours are published as release assets, not committed.
 screenshots/
+__pycache__/
