@@ -1,0 +1,5 @@
+node_modules/
+# The signed-in browser profile holds session cookies. Never commit it.
+.auth/
+# Tours are published as release assets, not committed.
+screenshots/
