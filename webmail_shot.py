@@ -42,8 +42,13 @@ locale. If the session expired, webmail sends the browser to the OAuth sign-in
 page. The tour then stops before it takes a screenshot and asks you to run
 `login` again.
 
-Each screenshot is the whole page, scaled down to fit 620 pixels each way, as
-SUMO's "How to make screenshots" says. The KB theme at support.tb.pro shows
+Each step has two screenshots. The first is the whole page, scaled down to
+fit 620 pixels each way, as SUMO's "How to make screenshots" says. Scaling
+makes the text half size and blurry, so the second, FILE-crop.png, is a crop
+of the page at full size: the step's `focus` (a dialog or a menu) and the
+outlined item, with a margin, at most 620 pixels each way. A focus wider or
+taller than that, such as the welcome dialog, keeps its top part, centered on
+the outlined item if there is one. The KB theme at support.tb.pro shows
 images at most 768 pixels wide, so 620 pixels stays below that limit. The
 outline is #f71701, square, and OUTLINE_PX thick in the file, centered on the
 edge of the item.
@@ -121,28 +126,28 @@ LIST_STATE_JS = """sel => { const l = document.querySelector(sel); if (!l) retur
 # `undo_ready`. Then the next step starts.
 STEPS = [
     {"file": "01-inbox-account-menu-next.png", "screen": "inbox",
-     "ready": MESSAGE_LIST, "outline": ACCOUNT_MENU},
+     "ready": MESSAGE_LIST, "outline": ACCOUNT_MENU, "focus": ACCOUNT_MENU},
     {"file": "02-account-menu-settings-next.png", "screen": "account menu",
-     "ready": ACCOUNT_MENU_POPUP, "outline": SETTINGS_ITEM},
+     "ready": ACCOUNT_MENU_POPUP, "outline": SETTINGS_ITEM, "focus": ACCOUNT_MENU_POPUP},
     {"file": "03-settings-shortcuts-thunderbird-next.png", "screen": "settings",
-     "ready": SETTINGS_DIALOG, "outline": SCHEME_THUNDERBIRD},
+     "ready": SETTINGS_DIALOG, "outline": SCHEME_THUNDERBIRD, "focus": SETTINGS_DIALOG},
     {"file": "04-settings-shortcuts-thunderbird.png", "screen": "settings, Thunderbird shortcuts",
-     "ready": SCHEME_THUNDERBIRD + "[aria-checked=true]", "outline": None,
+     "ready": SCHEME_THUNDERBIRD + "[aria-checked=true]", "outline": None, "focus": SETTINGS_DIALOG,
      "undo": [SCHEME_WEB], "undo_ready": SCHEME_WEB + "[aria-checked=true]"},
     {"file": "05-settings-system-theme-next.png", "screen": "settings",
-     "ready": SETTINGS_DIALOG, "outline": THEME_SWITCH},
+     "ready": SETTINGS_DIALOG, "outline": THEME_SWITCH, "focus": SETTINGS_DIALOG},
     {"file": "06-settings-system-theme-off.png", "screen": "settings, system theme off",
-     "ready": THEME_SWITCH + "[aria-checked=false]", "outline": None,
+     "ready": THEME_SWITCH + "[aria-checked=false]", "outline": None, "focus": SETTINGS_DIALOG,
      "undo": [THEME_SWITCH], "undo_ready": THEME_SWITCH + "[aria-checked=true]"},
     {"file": "07-settings-show-welcome-next.png", "screen": "settings",
-     "ready": SETTINGS_DIALOG, "outline": SHOW_WELCOME},
+     "ready": SETTINGS_DIALOG, "outline": SHOW_WELCOME, "focus": SETTINGS_DIALOG},
     {"file": "08-welcome.png", "screen": "welcome",
-     "ready": WELCOME_DIALOG, "gone": SETTINGS_DIALOG, "outline": None,
+     "ready": WELCOME_DIALOG, "gone": SETTINGS_DIALOG, "outline": None, "focus": WELCOME_DIALOG,
      "undo": [CLOSE_WELCOME, ACCOUNT_MENU, SETTINGS_ITEM], "undo_ready": SETTINGS_DIALOG},
     {"file": "09-settings-close-next.png", "screen": "settings",
-     "ready": SETTINGS_DIALOG, "outline": CLOSE_SETTINGS},
+     "ready": SETTINGS_DIALOG, "outline": CLOSE_SETTINGS, "focus": SETTINGS_DIALOG},
     {"file": "10-inbox.png", "screen": "inbox, Settings closed",
-     "ready": MESSAGE_LIST, "gone": SETTINGS_DIALOG, "outline": None},
+     "ready": MESSAGE_LIST, "gone": SETTINGS_DIALOG, "outline": None, "focus": ACCOUNT_MENU},
 ]
 # The settings are read before the click of this step, and after the undo of
 # the step before the last one, while the Settings dialog is open.
@@ -231,19 +236,97 @@ def shrink_and_outline(png, box=None, max_px=MAX_PX, color=OUTLINE_COLOR, width=
     return out.getvalue(), rect, size
 
 
+CROP_MARGIN_PX = 24
+CROP_MIN = (480, 320)  # a crop smaller than this gets more of the page around it
+
+
+def crop_file(file):
+    """The file name of a step's crop: 01-inbox.png gives 01-inbox-crop.png."""
+    return file[:-len(".png")] + "-crop.png"
+
+
+def crop_rect(focus, item, page_size, max_px=MAX_PX, min_size=CROP_MIN, margin=CROP_MARGIN_PX):
+    """The crop of a step, in CSS pixels, as (left, top, right, bottom).
+
+    It holds `focus` and `item` (boxes with x, y, width, height; item can be
+    None) with `margin` around them, at least min_size and at most max_px each
+    way, inside the page. If the boxes do not fit, the crop is centered on
+    the item, or else keeps the top of the focus and its horizontal center.
+    """
+    pw, ph = page_size
+    boxes = [b for b in (focus, item) if b]
+    left = min(b["x"] for b in boxes) - margin
+    top = min(b["y"] for b in boxes) - margin
+    right = max(b["x"] + b["width"] for b in boxes) + margin
+    bottom = max(b["y"] + b["height"] for b in boxes) + margin
+    anchor = item or focus
+    cx = anchor["x"] + anchor["width"] / 2
+    cy = anchor["y"] + anchor["height"] / 2
+
+    def fit(lo, hi, center, keep_start, smallest, largest, limit):
+        size = hi - lo
+        if size < smallest:
+            lo, hi = center - smallest / 2, center + smallest / 2
+        elif size > largest:
+            lo = lo if keep_start else center - largest / 2
+            hi = lo + largest
+        size = min(hi - lo, limit)
+        lo = min(max(0, lo), limit - size)
+        return round(lo), round(lo + size)
+
+    left, right = fit(left, right, cx, False, min_size[0], max_px, pw)
+    top, bottom = fit(top, bottom, cy, item is None, min_size[1], max_px, ph)
+    return left, top, right, bottom
+
+
+def crop_and_outline(png, page_size, crop, box=None, color=OUTLINE_COLOR, width=OUTLINE_PX):
+    """Cut `crop` (CSS pixels) out of a page screenshot at full size, and outline `box`.
+
+    A screenshot from a 2x screen is scaled to CSS pixels. Returns (png bytes,
+    the outline rectangle in the crop or None, (width, height)).
+    """
+    from PIL import Image, ImageDraw
+
+    img = Image.open(io.BytesIO(png)).convert("RGB")
+    device = img.size[0] / page_size[0]
+    left, top, right, bottom = crop
+    img = img.crop(tuple(round(v * device) for v in crop))
+    size = (right - left, bottom - top)
+    if img.size != size:
+        img = img.resize(size, Image.LANCZOS)
+    rect = None
+    if box is not None:
+        moved = dict(box, x=box["x"] - left, y=box["y"] - top)
+        rect = outline_rect(moved, 1.0, size, width)
+        l, t, r, b = rect
+        ImageDraw.Draw(img).rectangle([l, t, r - 1, b - 1], outline=color, width=width)
+    out = io.BytesIO()
+    img.save(out, "PNG")
+    return out.getvalue(), rect, size
+
+
 def index_md(name, steps):
     """index.md of a tour folder: one row per step."""
     lines = [f"# Thundermail webmail tour {name}", "",
              "Made by `webmail_shot.py tour` (issues #3 and #4). Each step has one screenshot. If",
              "the step has an outlined item, the tour clicks it, and the next step shows the result.",
              "A step without an outline shows what a click changed. The tour undoes that click",
-             "without a screenshot before the next step.", "",
-             "| Step | Screen | Screenshot | Item outlined | Size (px) | Outline (left, top, right, bottom) |",
-             "|---|---|---|---|---|---|"]
+             "without a screenshot before the next step. The crop is the same step at full size,",
+             "cut to the dialog or menu that the step is about.", "",
+             "Outlines are (left, top, right, bottom) in pixels of the file.", "",
+             "| Step | Screen | Item outlined | Whole page | Size (px) | Outline | Crop | Size (px) | Outline |",
+             "|---|---|---|---|---|---|---|---|---|"]
+
+    def size_of(v):
+        return "{} × {}".format(*v) if v else ""
+
+    def rect_of(v):
+        return ", ".join(str(x) for x in v) if v else ""
+
     for i, s in enumerate(steps, 1):
-        size = "{} × {}".format(*s["size"]) if s.get("size") else ""
-        rect = ", ".join(str(v) for v in s["outline"]) if s.get("outline") else ""
-        cells = [str(i), s["screen"], s["file"], s.get("label") or "", size, rect]
+        cells = [str(i), s["screen"], s.get("label") or "",
+                 s["file"], size_of(s.get("size")), rect_of(s.get("outline_rect")),
+                 s.get("crop_file") or "", size_of(s.get("crop_size")), rect_of(s.get("crop_outline_rect"))]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
     return "\n".join(lines) + "\n"
 
@@ -344,13 +427,22 @@ def save_step(page, folder, step, selector=None, say=print):
     page.mouse.move(0, 0)  # no hover effect in the screenshot
     page.evaluate(SETTLE_ANIMATIONS_JS)
     box = page_box(page, selector) if selector else None
-    png, rect, size = shrink_and_outline(page.screenshot(), box)
+    focus = page_box(page, step["focus"])
+    shot = page.screenshot()
+    png, rect, size = shrink_and_outline(shot, box)
     with open(os.path.join(folder, step["file"]), "wb") as f:
         f.write(png)
-    step = dict(step, size=list(size), outline=list(rect) if rect else None,
-                label=box["label"] if box else None)
+    crop = crop_rect(focus, box, focus["page"])
+    cpng, crect, csize = crop_and_outline(shot, focus["page"], crop, box)
+    with open(os.path.join(folder, crop_file(step["file"])), "wb") as f:
+        f.write(cpng)
+    step = dict(step, label=box["label"] if box else None,
+                size=list(size), outline_rect=list(rect) if rect else None,
+                crop_file=crop_file(step["file"]), crop=list(crop), crop_size=list(csize),
+                crop_outline_rect=list(crect) if crect else None)
     say(f"{step['file']}: {size[0]} × {size[1]} px"
-        + (f", outline {rect} ({box['label']})" if rect else ""))
+        + (f", outline {rect} ({box['label']})" if rect else "")
+        + f"; crop {csize[0]} × {csize[1]} px" + (f", outline {crect}" if crect else ""))
     return step
 
 
@@ -398,11 +490,12 @@ def tour(out=DEFAULT_OUT, headless=True, locale=DEFAULT_LOCALE, today=None, say=
         f.write(index_md(name, done))
     with open(os.path.join(folder, "index.json"), "w", encoding="utf-8") as f:
         f.write(index_json(name, locale, today, done))
-    saved = [s["file"] for s in done if os.path.isfile(os.path.join(folder, s["file"]))]
-    asked = [s["file"] for s in STEPS]
+    saved = [f for s in done for f in (s["file"], s["crop_file"]) if os.path.isfile(os.path.join(folder, f))]
+    asked = [f for s in STEPS for f in (s["file"], crop_file(s["file"]))]
     if saved != asked:
         raise SystemExit(f"The tour asked for {asked} but saved {saved}.")
-    say(f"Saved all {len(saved)} of {len(asked)} steps, index.md and index.json in {folder}.")
+    say(f"Saved all {len(saved)} of {len(asked)} screenshots ({len(STEPS)} steps), "
+        f"index.md and index.json in {folder}.")
     changed = settings_differences(START_SETTINGS, end)
     if changed:
         raise SystemExit("The tour changed the test account's settings. Fix them by hand:\n  "

@@ -138,6 +138,62 @@ class WaitUntilStable(unittest.TestCase):
             w.wait_until_stable(lambda: c.t, settle=5, timeout=30, clock=c, sleep=c.sleep)
 
 
+PAGE = (1240, 868)
+DIALOG = {"x": 390, "y": 283, "width": 460, "height": 302}
+AVATAR = {"x": 1188, "y": 10, "width": 36, "height": 36}
+WELCOME = {"x": 100, "y": 26, "width": 1040, "height": 816}
+
+
+class CropRect(unittest.TestCase):
+    def test_dialog_with_margin(self):
+        item = {"x": 732, "y": 367, "width": 96, "height": 25}
+        self.assertEqual(w.crop_rect(DIALOG, item, PAGE), (366, 259, 874, 609))
+
+    def test_small_item_gets_min_size_inside_page(self):
+        # The avatar is at the top right, so the crop moves left and down to stay inside.
+        self.assertEqual(w.crop_rect(AVATAR, AVATAR, PAGE), (760, 0, 1240, 320))
+
+    def test_large_focus_keeps_its_top_and_center(self):
+        self.assertEqual(w.crop_rect(WELCOME, None, PAGE), (310, 2, 930, 622))
+
+    def test_large_focus_is_centered_on_the_item(self):
+        item = {"x": 1060, "y": 600, "width": 40, "height": 40}
+        left, top, right, bottom = w.crop_rect(WELCOME, item, PAGE)
+        self.assertEqual((right - left, bottom - top), (620, 620))
+        self.assertTrue(left <= item["x"] and item["x"] + item["width"] <= right)
+        self.assertTrue(top <= item["y"] and item["y"] + item["height"] <= bottom)
+
+    def test_never_larger_than_max(self):
+        for focus in (DIALOG, AVATAR, WELCOME):
+            l, t, r, b = w.crop_rect(focus, None, PAGE)
+            self.assertLessEqual(r - l, w.MAX_PX)
+            self.assertLessEqual(b - t, w.MAX_PX)
+            self.assertTrue(0 <= l and r <= PAGE[0] and 0 <= t and b <= PAGE[1])
+
+
+class CropAndOutline(unittest.TestCase):
+    def test_full_size_and_outline(self):
+        item = dict(x=732, y=367, width=96, height=25)
+        crop = w.crop_rect(DIALOG, item, PAGE)
+        png, rect, size = w.crop_and_outline(png_of(*PAGE), PAGE, crop, item)
+        img = Image.open(io.BytesIO(png)).convert("RGB")
+        self.assertEqual(img.size, (508, 350))
+        self.assertEqual(size, (508, 350))
+        # The item is at full size: 96 x 25 inside the outline, centered on its edge.
+        self.assertEqual(rect, (732 - 366 - 3, 367 - 259 - 3, 828 - 366 + 3, 392 - 259 + 3))
+        row = (rect[1] + rect[3]) // 2
+        reds = [img.getpixel((x, row)) == RED for x in range(rect[0], rect[0] + w.OUTLINE_PX + 1)]
+        self.assertEqual(reds, [True] * w.OUTLINE_PX + [False])
+
+    def test_2x_screenshot_gives_css_size(self):
+        crop = w.crop_rect(DIALOG, None, PAGE)
+        _, _, size = w.crop_and_outline(png_of(2480, 1736), PAGE, crop)
+        self.assertEqual(size, (crop[2] - crop[0], crop[3] - crop[1]))
+
+    def test_crop_file_name(self):
+        self.assertEqual(w.crop_file("01-inbox-account-menu-next.png"), "01-inbox-account-menu-next-crop.png")
+
+
 class SettingsDifferences(unittest.TestCase):
     def test_same(self):
         self.assertEqual(w.settings_differences(w.START_SETTINGS, dict(w.START_SETTINGS)), [])
@@ -152,15 +208,19 @@ class SettingsDifferences(unittest.TestCase):
 
 class Index(unittest.TestCase):
     steps = [
-        dict(w.STEPS[0], size=[620, 434], outline=[591, 2, 615, 26], label="Open account menu"),
-        dict(w.STEPS[1], size=[620, 434], outline=[493, 61, 611, 86], label="Settings"),
-        dict(w.STEPS[3], size=[620, 434], outline=None, label=None),
+        dict(w.STEPS[0], size=[620, 434], outline_rect=[591, 2, 615, 26], label="Open account menu",
+             crop_file="01-inbox-account-menu-next-crop.png", crop_size=[480, 320], crop_outline_rect=[425, 7, 467, 49]),
+        dict(w.STEPS[1], size=[620, 434], outline_rect=[493, 61, 611, 86], label="Settings"),
+        dict(w.STEPS[3], size=[620, 434], outline_rect=None, label=None,
+             crop_file="04-settings-shortcuts-thunderbird-crop.png", crop_size=[508, 350], crop_outline_rect=None),
     ]
 
     def test_md(self):
         md = w.index_md("2026-11-25-en-US", self.steps)
-        self.assertIn("| 1 | inbox | 01-inbox-account-menu-next.png | Open account menu | 620 × 434 | 591, 2, 615, 26 |", md)
-        self.assertIn("| 3 | settings, Thunderbird shortcuts | 04-settings-shortcuts-thunderbird.png |  | 620 × 434 |  |", md)
+        self.assertIn("| 1 | inbox | Open account menu | 01-inbox-account-menu-next.png | 620 × 434 | 591, 2, 615, 26 "
+                      "| 01-inbox-account-menu-next-crop.png | 480 × 320 | 425, 7, 467, 49 |", md)
+        self.assertIn("| 3 | settings, Thunderbird shortcuts |  | 04-settings-shortcuts-thunderbird.png | 620 × 434 |  "
+                      "| 04-settings-shortcuts-thunderbird-crop.png | 508 × 350 |  |", md)
 
     def test_json(self):
         data = json.loads(w.index_json("2026-11-25-en-US", "en-US", datetime.date(2026, 11, 25), self.steps))
@@ -199,6 +259,10 @@ class Index(unittest.TestCase):
                 self.assertNotIn("[aria-label=", sel)
                 self.assertNotIn("text=", sel)
                 self.assertNotIn(":has-text", sel)
+
+    def test_every_step_has_a_focus(self):
+        for s in w.STEPS:
+            self.assertTrue(s["focus"], s["file"])
 
     def test_file_names_have_no_visible_text(self):
         for s in w.STEPS:
