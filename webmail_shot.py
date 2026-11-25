@@ -171,14 +171,8 @@ EXPIRED = ("The session expired: webmail sent the browser to the sign-in page at
            "Run `uv run webmail_shot.py login` and sign in again. No screenshot was taken.")
 
 
-# Waits two frames, so that a CSS transition that a click starts is running,
-# and then until every animation and transition on the page has finished.
-# Returns the number of animations it waited for.
-SETTLE_ANIMATIONS_JS = """() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
-  const running = document.getAnimations().filter(a => a.playState === 'running'
-    && a.effect?.getComputedTiming().iterations !== Infinity);
-  Promise.all(running.map(a => a.finished.catch(() => null))).then(() => resolve(running.length));
-})))"""
+# Waits until the page's web fonts are loaded (#7), as the stormbox tests do.
+FONTS_READY_JS = "() => document.fonts.ready.then(() => document.fonts.status)"
 
 
 # --- Pure functions: no browser ---------------------------------------------------
@@ -504,10 +498,13 @@ def page_box(page, selector):
 
 def save_step(page, folder, step, selector=None, say=print):
     page.mouse.move(0, 0)  # no hover effect in the screenshot
-    page.evaluate(SETTLE_ANIMATIONS_JS)
+    page.evaluate(FONTS_READY_JS)
+    # animations="disabled" ends CSS animations and transitions at their end
+    # state, but only during the screenshot (#7). So the screenshot comes
+    # first, and the boxes are read after it, when the page has settled.
+    shot = page.screenshot(animations="disabled")
     box = page_box(page, selector) if selector else None
     focus = page_box(page, step["focus"])
-    shot = page.screenshot()
     png, rect, size = shrink_and_outline(shot, box)
     with open(os.path.join(folder, step["file"]), "wb") as f:
         f.write(png)
