@@ -82,6 +82,13 @@ ACCOUNT_MENU_POPUP = "details.account-menu[open] [role=menu]"
 SETTINGS_ITEM = "details.account-menu [role=menu] [role=menuitem] >> nth=0"
 SETTINGS_DIALOG = "[role=dialog][aria-labelledby=settings-dialog-title]"
 
+# Webmail shows its cached message list first and refreshes it later, so the
+# tour waits until the list stays the same for SETTLE_S seconds (#3).
+SETTLE_S = 5
+LIST_STATE_JS = """sel => { const l = document.querySelector(sel); if (!l) return null;
+  return [l.getAttribute('aria-rowcount'), l.getAttribute('aria-busy'),
+          ...[...l.querySelectorAll('[role=row]')].map(r => r.getAttribute('aria-label'))].join('\\n'); }"""
+
 # Each step waits for `ready`, saves a screenshot with `outline` outlined,
 # and then clicks `outline`, which leads to the next step.
 STEPS = [
@@ -185,6 +192,25 @@ def index_json(name, locale, date, steps):
                        "url": WEBMAIL_URL, "steps": steps}, ensure_ascii=False, indent=1) + "\n"
 
 
+def wait_until_stable(read, settle=SETTLE_S, timeout=30, clock=time.monotonic, sleep=time.sleep):
+    """Call read() until its value stays the same for `settle` seconds.
+
+    Returns the seconds it waited. Raises RuntimeError after `timeout`.
+    """
+    start = clock()
+    value, since = read(), start
+    while True:
+        now = clock()
+        if now - since >= settle:
+            return now - start
+        if now - start > timeout:
+            raise RuntimeError(f"the value still changed after {timeout} s")
+        sleep(0.5)
+        new = read()
+        if new != value:
+            value, since = new, clock()
+
+
 # --- The browser ---------------------------------------------------------------
 
 def open_context(playwright, headless, locale=DEFAULT_LOCALE):
@@ -275,6 +301,9 @@ def tour(out=DEFAULT_OUT, headless=True, locale=DEFAULT_LOCALE, today=None, say=
             done = []
             for step in STEPS:
                 wait_for_webmail(page, step["ready"])
+                if step["ready"] == MESSAGE_LIST:
+                    waited = wait_until_stable(lambda: page.evaluate(LIST_STATE_JS, MESSAGE_LIST))
+                    say(f"The message list stayed the same for {SETTLE_S} s after {waited:.1f} s.")
                 os.makedirs(folder, exist_ok=True)
                 done.append(save_step(page, folder, step, step["outline"], say))
                 if step["outline"]:

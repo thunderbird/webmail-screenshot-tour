@@ -110,6 +110,34 @@ class ShrinkAndOutline(unittest.TestCase):
         self.assertNotIn(RED, [c for _, c in img.getcolors(1 << 20)])
 
 
+class FakeClock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+class WaitUntilStable(unittest.TestCase):
+    def test_stable_value_waits_settle(self):
+        c = FakeClock()
+        self.assertEqual(w.wait_until_stable(lambda: "a", settle=5, clock=c, sleep=c.sleep), 5.0)
+
+    def test_change_restarts_the_wait(self):
+        c = FakeClock()
+        # The cached list for 2 s, then the refreshed list.
+        read = lambda: "cached" if c.t < 2 else "fresh"
+        self.assertEqual(w.wait_until_stable(read, settle=5, clock=c, sleep=c.sleep), 7.0)
+
+    def test_never_stable(self):
+        c = FakeClock()
+        with self.assertRaises(RuntimeError):
+            w.wait_until_stable(lambda: c.t, settle=5, timeout=30, clock=c, sleep=c.sleep)
+
+
 class Index(unittest.TestCase):
     steps = [
         dict(w.STEPS[0], size=[620, 434], outline=[591, 2, 615, 26], label="Open account menu"),
