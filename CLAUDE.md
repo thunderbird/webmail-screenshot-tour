@@ -1,0 +1,73 @@
+# CLAUDE.md
+
+## What this is
+
+`webmail-screenshot-tour` makes screenshot tours of webmail.thundermail.com in Firefox. The
+screenshots are for SUMO (support.mozilla.org) Knowledge Base articles about Thundermail.
+
+A tour is a script that clicks through the webmail screens in a fixed order. It saves one PNG
+for each step, plus `index.md` and `index.json` that list the steps.
+
+Nothing is built yet. The design record is issue #1. Read it and its comments first. It has
+two open questions: which screens the tour visits, and whether the test account holds
+private data.
+
+This repository started on 2026-11-25. It follows two pieces of work in
+[thunderbird/sumo-linter](https://github.com/thunderbird/sumo-linter):
+
+- sumo-linter #55 and #56: the screenshot tour of Thunderbird desktop Settings, in
+  `tools/checklist/tb_shot.py`. Use its tour as the model for this one.
+- sumo-linter #63: a test of `@mozilla/firefox-mcp`. The report is
+  `docs/firefox-mcp-screenshot-test.md` in that repository.
+
+## Decisions already made
+
+- Playwright drives Firefox. The script is repeatable and runs without an AI agent.
+- firefox-mcp is only for exploration. Its `take_snapshot` lists each control with its role
+  and label, which helps you find IDs before you write the script. Webmail is an ordinary web
+  page, so firefox-mcp needs no `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS` for it.
+- The script finds each control by ID or ARIA role, never by visible text. This way, the
+  same tour works in other locales.
+- A tour is named by date and locale, for example `2026-11-25-en-US`. Webmail has no
+  version numbers, unlike Thunderbird desktop.
+- Tours are published as GitHub release assets, one zip for each tour, as `tb_shot.py
+  publish` does. They are not committed. `screenshots/` is gitignored.
+- This repository is public, so every committed file and every published screenshot is
+  public too.
+
+## Sign-in and private data
+
+The maintainer signs in to a test account by hand, one time. The session stays in a browser
+profile under `.auth/`, which is gitignored. Never commit `.auth/`, because it holds session
+cookies. The script never types a password and never asks for one.
+
+A webmail screenshot shows a mailbox. SUMO's rules forbid personal information in
+screenshots, including email addresses and user names. Before a tour is published, make sure
+that no screenshot shows private data. Use only the test account.
+
+## SUMO's screenshot rules
+
+The source is the SUMO article `how-to-make-screenshots`. A copy of its wiki source is in
+sumo-linter at `corpus-other/markup-docs/en-US/how-to-make-screenshots.wiki`.
+
+- Keep each image under 620 pixels in width and in height.
+- Outline the important item with a red outline, color `#f71701`, with square corners.
+- Make the outline 4 to 8 points thick, and center the item inside it.
+- Crop to the part of the screen that the task needs.
+- Remove all personal information.
+- Save as PNG.
+
+`tb_shot.py` learned one more thing: around a small item, such as a 28 px row, a thick
+outline covers the text of its neighbors. Its tour draws the outline 6 px thick and centers
+it on the item's edge.
+
+## Conventions
+
+- Every change gets a GitHub issue as its design record, however small. Commit straight to
+  `main` with the issue number in the message. Do not make a branch or a pull request.
+- Put the MPL-2.0 header on every new source file.
+- Write tests with the code. Put logic that needs no browser in pure functions, so that CI
+  can test it without a browser.
+- Report measured values (sizes in pixels, colors, computed styles), not visual judgments.
+- When a loop finishes, compare what it recorded with what it asked for, and say which case
+  it hit. "Nothing left to do" and "nothing was done" look the same from inside a loop.
