@@ -1,7 +1,8 @@
 # webmail-screenshot-tour
 
 This repository makes screenshot tours of [Thundermail webmail](https://webmail.thundermail.com)
-in Firefox. The screenshots are for SUMO (support.mozilla.org) Knowledge Base articles.
+in Firefox. The screenshots are for the Thundermail Knowledge Base at
+[support.tb.pro/hc](https://support.tb.pro/hc).
 
 Nothing is built yet. The plan is in issue #1.
 

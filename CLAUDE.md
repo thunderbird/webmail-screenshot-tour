@@ -3,7 +3,8 @@
 ## What this is
 
 `webmail-screenshot-tour` makes screenshot tours of webmail.thundermail.com in Firefox. The
-screenshots are for SUMO (support.mozilla.org) Knowledge Base articles about Thundermail.
+screenshots are for the Thundermail Knowledge Base on Zendesk, at support.tb.pro/hc. They are
+not for SUMO (support.mozilla.org).
 
 A tour is a script that clicks through the webmail screens in a fixed order. It saves one PNG
 for each step, plus `index.md` and `index.json` that list the steps.
@@ -44,12 +45,15 @@ before it takes a screenshot, and asks the maintainer to run `login` again. Neve
 `.auth/`, because it holds session cookies. The script never types a password and never asks
 for one, and no password goes in a file or an environment variable.
 
-A webmail screenshot shows a mailbox. SUMO's rules forbid personal information in
-screenshots, including email addresses and user names. Before a tour is published, make sure
+A webmail screenshot shows a mailbox. The screenshot rules below forbid personal
+information, including email addresses and user names. Before a tour is published, make sure
 that no screenshot shows private data. Use only the test account, `nemo@thundermail.com`. It
 holds no private data, and as a dedicated test address it can show in screenshots.
 
-## SUMO's screenshot rules
+## Screenshot rules
+
+support.tb.pro has no screenshot guide that we know of, so the tour uses SUMO's rules for now
+(issue #2). If support.tb.pro publishes its own rules, a new issue will replace these.
 
 The source is the SUMO article `how-to-make-screenshots`. A copy of its wiki source is in
 sumo-linter at `corpus-other/markup-docs/en-US/how-to-make-screenshots.wiki`.
