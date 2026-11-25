@@ -8,9 +8,7 @@ screenshots are for SUMO (support.mozilla.org) Knowledge Base articles about Thu
 A tour is a script that clicks through the webmail screens in a fixed order. It saves one PNG
 for each step, plus `index.md` and `index.json` that list the steps.
 
-Nothing is built yet. The design record is issue #1. Read it and its comments first. It has
-two open questions: which screens the tour visits, and whether the test account holds
-private data.
+Nothing is built yet. The design record is issue #1. Read it and its comments first.
 
 This repository started on 2026-11-25. It follows two pieces of work in
 [thunderbird/sumo-linter](https://github.com/thunderbird/sumo-linter):
@@ -32,18 +30,24 @@ This repository started on 2026-11-25. It follows two pieces of work in
   version numbers, unlike Thunderbird desktop.
 - Tours are published as GitHub release assets, one zip for each tour, as `tb_shot.py
   publish` does. They are not committed. `screenshots/` is gitignored.
+- The tour starts at webmail.thundermail.com, signs in through OAuth, and then visits the
+  Settings screens, as the desktop tour does.
 - This repository is public, so every committed file and every published screenshot is
   public too.
 
 ## Sign-in and private data
 
-The maintainer signs in to a test account by hand, one time. The session stays in a browser
-profile under `.auth/`, which is gitignored. Never commit `.auth/`, because it holds session
-cookies. The script never types a password and never asks for one.
+The tour stores no secret. A `login` command opens Firefox with a persistent profile in
+`.auth/`, and the maintainer signs in by hand in the OAuth window. Later runs reuse that
+session. If the session expires, the tour sees the redirect to the OAuth sign-in page, stops
+before it takes a screenshot, and asks the maintainer to run `login` again. Never commit
+`.auth/`, because it holds session cookies. The script never types a password and never asks
+for one, and no password goes in a file or an environment variable.
 
 A webmail screenshot shows a mailbox. SUMO's rules forbid personal information in
 screenshots, including email addresses and user names. Before a tour is published, make sure
-that no screenshot shows private data. Use only the test account.
+that no screenshot shows private data. Use only the test account, `nemo@thundermail.com`. It
+holds no private data, and as a dedicated test address it can show in screenshots.
 
 ## SUMO's screenshot rules
 
